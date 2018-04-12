@@ -21,14 +21,19 @@
 
 import json
 import logging
+import os
 import ssl
 import time
-from http.client import HTTPSConnection
+from http.client import HTTPConnection, HTTPSConnection
 
 HOST_NAME = "api.listenbrainz.org"
 PATH_SUBMIT = "/1/submit-listens"
 SSL_CONTEXT = ssl.create_default_context()
 
+# to run against a local dev server
+if os.getenv("QL_LISTENBRAINZ_DEV_SERVER") is not None:
+    HOST_NAME = os.getenv("QL_LISTENBRAINZ_DEV_SERVER")
+    SSL_CONTEXT = None
 
 class Track:
     """
@@ -120,13 +125,24 @@ class ListenBrainzClient:
             "Content-Type": "application/json"
         }
         body = json.dumps(data)
-        conn = HTTPSConnection(HOST_NAME, context=SSL_CONTEXT)
+        print("submit: %s" % body)
+        if SSL_CONTEXT is not None:
+            conn = HTTPSConnection(HOST_NAME, context=SSL_CONTEXT)
+        else:
+            conn = HTTPConnection(HOST_NAME)
+        # XXX TODO, catch errors?
         conn.request("POST", PATH_SUBMIT, body, headers)
         response = conn.getresponse()
         response_text = response.read()
         try:
             response_data = json.loads(response_text)
-        except json.decoder.JSONDecodeError:
+        #Python3
+        #except json.JSONDecodeError:
+        #    response_data = response_text
+        #Python2
+        except ValueError as e:
+            if str(e) != "No JSON object could be decoded":
+                raise e
             response_data = response_text
 
         self._handle_ratelimit(response)
