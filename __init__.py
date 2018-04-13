@@ -151,6 +151,9 @@ class ListenBrainzSubmitQueue(object):
         self.nowplaying_sent = False
 
         self.broken = False
+        self.offline = False
+        self.retries = 0
+
         self.lb = listenbrainz.ListenBrainzClient() # XXX logger=xxx
 
         # These need to be set early for _format_song to work
@@ -208,50 +211,87 @@ class ListenBrainzSubmitQueue(object):
         """Submit songs from the queue. Call from a daemon thread."""
 
         print_d("Submission queue thread running")
+
         while True:
-            print_d("Waiting for queue")
+            print_d("Top of queue loop")
             self.condition.acquire()
-            # XXX not self.broken and?
-            while not self.queue and (not self.nowplaying_track or self.nowplaying_sent):
+
+            while self.broken or self.offline or (not self.queue and (not self.nowplaying_track or self.nowplaying_sent)):
                 print_d("Nothing to do, waiting")
                 self.condition.wait()
-            # XXX use a proper queue for better efficiency?
-            print_d("Awoke")
-            submit = None
+                print_d("Awoke")
 
-            if self.queue: submit = self.queue.pop(0)
-            nowplaying = self.nowplaying_track and not self.nowplaying_sent
+            print_d("Running iteration")
+
+            # Poll inputs under the lock
+
+            submit = None
+            if self.queue:
+                submit = self.queue[0]
+            nowplaying = None
+            if self.nowplaying_track and not self.nowplaying_sent:
+                nowplaying = self.nowplaying_track
+
             self.condition.release()
+
+            # Call f() and handle errors with backoff and disable
+            def with_backoff(f):
+                try:
+                    rsp = f()
+                except Exception as e:
+                    rsp = None
+                    print_d("Error: %s" % e)
+
+                if rsp and rsp.status == 200:
+                    self.retries = 0
+                    return True
+                elif self.retries >= 6:
+                    # Too many retries, put self offline
+                    print_d("Too many retries, setting to offline")
+                    self.offline = True
+                    plugin_config.set("offline", True)
+
+                    self.quick_dialog(_("Too many consecutive submission failures (%d). Setting to offline mode. "
+                                        " Please visit the Plugins window to reset "
+                                        "ListenBrainz. Until then, listens will not be "
+                                        "submitted." % self.retries), Gtk.MessageType.INFO)
+                    return False
+                else:
+                    delay = 10
+                    print_d("Failure, waiting %ds" % delay)
+                    self.retries += 1
+                    time.sleep(delay)
+                    print_d("Done sleeping")
+                    return False
+                return True
 
             if submit:
                 (listened_at, track) = submit
                 print_d("Submitting: %s" % track)
-                success = True # XXX better handling
-                try:
-                    rsp = self.lb.listen(listened_at, track)
-                    if rsp.status != 200:
-                        success = False
-                except Exception as e:
-                    # XXX ends up in a tight loop. Needs backoff
-                    print_d("Error: %s" % e)
-                    success = False
-                if not success:
-                    self.condition.acquire()
-                    self.queue.insert(0, submit)
-                    self.condition.release()
-            if nowplaying:
-                print_d("Now playing: %s" % self.nowplaying_track)
-                send = self.nowplaying_track
-                try:
-                    self.lb.playing_now(send)
-                except Exception as e:
-                    print_d("Error: %s" % e)
-                    continue 
+
+                if not with_backoff(lambda: self.lb.listen(listened_at, track)):
+                    continue
+
+                print_d("Submission successful")
+
+                # Remove submitted entry under lock
                 self.condition.acquire()
-                if send == self.nowplaying_track: # only if it didn't change under our feet
-                    self.nowplaying_sent = True
+                if self.queue[0] == submit:
+                    self.queue.pop(0)
                 self.condition.release()
 
+            if nowplaying:
+                print_d("Now playing: %s" % nowplaying)
+
+                if not with_backoff(lambda: self.lb.playing_now(nowplaying)):
+                    continue 
+
+                print_d("Now playing submission successful")
+
+                self.condition.acquire()
+                if nowplaying == self.nowplaying_track: # only if it didn't change under our feet
+                    self.nowplaying_sent = True
+                self.condition.release()
 
     def quick_dialog_helper(self, dialog_type, msg):
         dialog = Message(dialog_type, app.window, "ListenBrainz", msg)
