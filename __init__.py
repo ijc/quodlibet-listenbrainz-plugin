@@ -286,14 +286,16 @@ class ListenbrainzSubmission(EventPlugin):
             return
         if self.unpaused_time > 0:
             self.elapsed += time.time() - self.unpaused_time
-        # XXX TODO, confirm with LB spec not LFM spec
-        # Spec: * don't submit when song length < 00:30
-        #       * submit at end of playback (not in the middle, as with v1.1)
-        #       * submit if played for >= .5*length or >= 240s
+        # https://listenbrainz.readthedocs.io/en/latest/dev/api.html
+        #
+        # Listens should be submitted for tracks when the user has
+        # listened to half the track or 4 minutes of the track,
+        # whichever is lower. If the user hasn’t listened to 4 minutes
+        # or half the track, it doesn’t fully count as a listen and
+        # should not be submitted.
+        #
         # we check 'elapsed' rather than 'length' to work around wrong ~#length
-        if self.elapsed < 30:
-            return
-        if self.elapsed < 240 and self.elapsed <= .5 * song.get("~#length", 0):
+        if self.elapsed < (4*60) and self.elapsed <= .5 * song.get("~#length", 0):
             return
         print_d("Checking against filter %s" % self.exclude)
         if self.exclude and Query(self.exclude).search(song):
