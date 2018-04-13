@@ -30,6 +30,7 @@ from quodlibet.query import Query
 from quodlibet.plugins.events import EventPlugin
 from quodlibet.plugins import PluginConfig
 from quodlibet.qltk.entry import ValidatingEntry, UndoEntry
+from quodlibet.qltk.msg import Message
 from quodlibet.qltk import Icons
 from quodlibet.util.dprint import print_d
 from quodlibet.util.picklehelper import pickle_load, pickle_dump, PickleError
@@ -181,7 +182,7 @@ class ListenBrainzSubmitQueue(object):
         if not user_token:
             if self.queue and not self.broken:
                 self.quick_dialog(_("Please visit the Plugins window to set "
-                              "ListenBrainz up. Until then, songs will not be "
+                              "ListenBrainz up. Until then, listens will not be "
                               "submitted."), Gtk.MessageType.INFO)
                 self.broken = True
         #elif (self.lb.host_name, self.lb.user_token) != (endpoint, user_token):
