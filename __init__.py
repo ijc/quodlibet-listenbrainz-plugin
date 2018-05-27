@@ -35,6 +35,9 @@ from quodlibet.qltk import Icons
 from quodlibet.util.dprint import print_d
 from quodlibet.util.picklehelper import pickle_load, pickle_dump, PickleError
 
+import csv
+from StringIO import StringIO
+
 import listenbrainz
 
 DEFAULT_TITLEPAT = '<title><version| (<version>)>'
@@ -49,12 +52,23 @@ defaults.set("titlepat", "")
 defaults.set("artistpat", "")
 defaults.set("exclude", "")
 defaults.set("offline", False)
+defaults.set("tags", "")
 
 def config_get_title_pattern():
     return plugin_config.get('titlepat') or DEFAULT_TITLEPAT
 
 def config_get_artist_pattern():
     return plugin_config.get('artistpat') or DEFAULT_ARTISTPAT
+
+def config_get_tags():
+    tags = plugin_config.get('tags') or None
+    if tags is None: return []
+    #return [x.strip() for x in tags.split(",")]
+    try:
+        return csv.reader(StringIO(tags), quoting=csv.QUOTE_ALL,skipinitialspace=True).next()
+    except e:
+        print_d("Failed to parse tags \"%s\": %s" % tags, e)
+        return []
 
 class ListenBrainzSubmitQueue(object):
     """Manages the submit queue for listens. Works independently of the
@@ -138,7 +152,8 @@ class ListenBrainzSubmitQueue(object):
             ('track_mbid',         song.get("musicbrainz_releasetrackid", None)),
             ('work_mbids',         song.list("musicbrainz_workid")),
             ('tracknumber',        song.get("tracknumber", None)),
-            ('isrc',               song.get("isrc", None))]:
+            ('isrc',               song.get("isrc", None)),
+            ('tags',               self.tags)]:
             if v is not None and v != []:
                 additional_info[k] = v
 
@@ -159,6 +174,7 @@ class ListenBrainzSubmitQueue(object):
         # These need to be set early for _format_song to work
         self.titlepat = Pattern(config_get_title_pattern())
         self.artpat = Pattern(config_get_artist_pattern())
+        self.tags = config_get_tags()
 
         try:
             with open(self.DUMP, 'rb') as disk_queue_file:
@@ -198,6 +214,7 @@ class ListenBrainzSubmitQueue(object):
         self.offline = plugin_config.getboolean('offline')
         self.titlepat = Pattern(config_get_title_pattern())
         self.artpat = Pattern(config_get_artist_pattern())
+        self.tags = config_get_tags()
 
     # Must be called with self.condition acquired
     def changed(self):
@@ -440,13 +457,13 @@ class ListenbrainzSubmission(EventPlugin):
         box.pack_start(qltk.Frame(_("Account"), child=table), True, True, 0)
 
         # second frame
-        table = Gtk.Table(n_rows=4, n_columns=2)
+        table = Gtk.Table(n_rows=5, n_columns=2)
         table.props.expand = False
         table.set_col_spacings(6)
         table.set_row_spacings(6)
 
         label_names = [_("_Artist pattern:"), _("_Title pattern:"),
-            _("Exclude _filter:")]
+            _("T_ags:"), _("Exclude _filter:")]
 
         labels = []
         for idx, name in enumerate(label_names):
@@ -476,6 +493,16 @@ class ListenbrainzSubmission(EventPlugin):
         table.attach(entry, 1, 2, row, row + 1)
         entry.set_tooltip_text(_("The pattern used to format "
             "the title for submission. Leave blank for default."))
+        labels[row].set_mnemonic_widget(entry)
+        row += 1
+
+        # tags
+        entry = UndoEntry()
+        entry.set_text(plugin_config.get('tags'))
+        entry.connect('changed', changed, 'tags')
+        table.attach(entry, 1, 2, row, row + 1)
+        entry.set_tooltip_text(_("List of tags to include in the submission. "
+                                 "Comma separated, use double-quotes if necessary."))
         labels[row].set_mnemonic_widget(entry)
         row += 1
 
