@@ -36,9 +36,9 @@ from quodlibet.util.dprint import print_d
 from quodlibet.util.picklehelper import pickle_load, pickle_dump, PickleError
 
 import csv
-from StringIO import StringIO
+from io import StringIO
 
-import listenbrainz
+from . import listenbrainz
 
 DEFAULT_TITLEPAT = '<title><version| (<version>)>'
 DEFAULT_ARTISTPAT = '<artist|<artist>|<composer|<composer>|<performer>>>'
@@ -64,8 +64,9 @@ def config_get_tags():
     tags = plugin_config.get('tags') or None
     if tags is None: return []
     #return [x.strip() for x in tags.split(",")]
+    parser = csv.reader(StringIO(tags), quoting=csv.QUOTE_ALL,skipinitialspace=True)
     try:
-        return csv.reader(StringIO(tags), quoting=csv.QUOTE_ALL,skipinitialspace=True).next()
+        return next(parser)
     except e:
         print_d("Failed to parse tags \"%s\": %s" % tags, e)
         return []
