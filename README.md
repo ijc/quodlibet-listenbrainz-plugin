@@ -1,3 +1,7 @@
+Update: As of https://github.com/quodlibet/quodlibet/pull/3528 this plugin is now available [QuodLibet](https://github.com/quodlibet/quodlibet) directly.
+
+---
+
 A [ListenBrainz](https://listenbrainz.org/) submission plugin for the [QuodLibet](https://github.com/quodlibet/quodlibet) music player.
 
 To install copy `*.py` to a subdirectory of `~/.quodlibet/plugins` (e.g. `~/.quodlibet/plugins/listenbrainz/`).
